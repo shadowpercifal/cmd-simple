@@ -6,5 +6,5 @@
 # Execute drover autoinstall (Direct mode)
 - required: discord running (will be closed)
 ```pwsh
-(iwr -UseBasicParsing 'https://raw.githubusercontent.com/shadowpercifal/pwsh-simple/refs/heads/main/drover-install.ps1').Content | iex
+(iwr -UseBasicParsing 'https://raw.githubusercontent.com/shadowpercifal/pwsh-simple/refs/heads/main/drover-autoinstall.ps1').Content | iex
 ```
