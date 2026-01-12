@@ -53,12 +53,6 @@ function Relaunch-AsAdmin {
     }
 }
 
-function Wait-DiscordExit {
-    while (Get-Process -Name $discordProcessName -ErrorAction SilentlyContinue) {
-        Start-Sleep -Milliseconds 300
-    }
-}
-
 try {
     # Capture script content
     $scriptContent = $MyInvocation.MyCommand.Path | ForEach-Object { Get-Content -Raw -ErrorAction SilentlyContinue }
@@ -81,7 +75,9 @@ try {
         Relaunch-AsAdmin -ScriptContent $scriptContent
     }
 
-    Wait-DiscordExit()
+    while (Get-Process -Name $discordProcessName -ErrorAction SilentlyContinue) {
+        Start-Sleep -Milliseconds 300
+    }
     Write-Host "All Discord processes have been terminated."
 
     # Determine Discord directory
