@@ -72,7 +72,10 @@ try {
     $discordProcesses = Get-Process -Name $discordProcessName -ErrorAction SilentlyContinue
     if ($discordProcesses) {
         foreach ($proc in $discordProcesses) {
-            Stop-Process -Id $proc.Id -Force
+            try {
+                Stop-Process -Id $proc.Id -Force
+            } catch {
+            }
         }
     }
 
