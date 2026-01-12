@@ -14,10 +14,15 @@ function Test-IsAdmin {
 
 # Relaunch script as admin
 function Relaunch-AsAdmin {
-    param([string]$ScriptPath)
+    param([string]$ScriptContent)
+    Write-Host "Re-launching script with administrative privileges..."
+
+    $tempFile = Join-Path $env:TEMP ("temp_admin_script_" + [Guid]::NewGuid().ToString() + ".ps1")
+    Set-Content -Path $tempFile -Value $ScriptContent -Force
+
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = "powershell.exe"
-    $psi.Arguments = "-ExecutionPolicy Bypass -File `"$ScriptPath`""
+    $psi.Arguments = "-ExecutionPolicy Bypass -File `"$tempFile`""
     $psi.Verb = "runas"
     try {
         [System.Diagnostics.Process]::Start($psi) | Out-Null
@@ -27,20 +32,31 @@ function Relaunch-AsAdmin {
     }
 }
 
+# Helper: Wait for all discord.exe to terminate
+function Wait-DiscordExit {
+    while (Get-Process -Name $discordProcessName -ErrorAction SilentlyContinue) {
+        Start-Sleep -Milliseconds 300
+    }
+}
+
 try {
+    # Capture the full script content for potential re-launch
+    $scriptContent = Get-Content -Raw -LiteralPath $MyInvocation.MyCommand.Path -ErrorAction SilentlyContinue
+    if (-not $scriptContent) {
+        # Running in memory (unsaved), read from invocation
+        $scriptContent = $MyInvocation.Line
+    }
+
     # Get all Discord processes
     $discordProcesses = Get-Process -Name $discordProcessName -ErrorAction SilentlyContinue
-
     if (-not $discordProcesses) {
         throw "Discord process was not found. Please start Discord and try again."
     }
 
-    # Check if any Discord process is elevated
+    # Attempt to stop Discord; if fails, relaunch as admin
     $needAdmin = $false
     foreach ($proc in $discordProcesses) {
-        $processHandle = $proc.Handle
         try {
-            # Attempt to kill a single process non-elevated
             Stop-Process -Id $proc.Id -Force -ErrorAction Stop
         } catch {
             $needAdmin = $true
@@ -48,39 +64,27 @@ try {
         }
     }
 
-    # Relaunch as admin if required
     if ($needAdmin -and -not (Test-IsAdmin)) {
-        Write-Host "Some Discord processes require administrative privileges to terminate."
-        Relaunch-AsAdmin -ScriptPath $MyInvocation.MyCommand.Path
-    }
-
-    # Re-fetch Discord processes and terminate any remaining
-    $discordProcesses = Get-Process -Name $discordProcessName -ErrorAction SilentlyContinue
-    if ($discordProcesses) {
-        foreach ($proc in $discordProcesses) {
-            Stop-Process -Id $proc.Id -Force
+        if (-not $scriptContent) {
+            throw "Cannot elevate: script content is unavailable."
         }
+        Relaunch-AsAdmin -ScriptContent $scriptContent
     }
 
-    # Wait until all Discord processes disappear
-    while (Get-Process -Name $discordProcessName -ErrorAction SilentlyContinue) {
-        Start-Sleep -Milliseconds 300
-    }
-
+    # Ensure all Discord processes terminated
+    Wait-DiscordExit()
     Write-Host "All Discord processes have been terminated."
 
     # Determine Discord directory
     $discordExePath = ($discordProcesses | Where-Object { $_.Path } | Select-Object -First 1).Path
     if (-not $discordExePath) {
-        # Fallback: check standard install locations
-        $discordExePath = "$env:LOCALAPPDATA\Discord\app-*\Discord.exe"
-        $discordExePath = Get-ChildItem -Path $discordExePath -ErrorAction SilentlyContinue | Select-Object -First 1
+        # Fallback: common install location
+        $discordExePath = Get-ChildItem -Path "$env:LOCALAPPDATA\Discord\app-*\Discord.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
         if (-not $discordExePath) {
             throw "Unable to determine Discord installation path."
         }
         $discordExePath = $discordExePath.FullName
     }
-
     $discordDir = Split-Path -Path $discordExePath -Parent
     $zipPath = Join-Path $discordDir $zipFileName
 
@@ -93,7 +97,6 @@ try {
     # Extract version.dll
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
-
     $versionDllEntry = $zip.Entries | Where-Object { $_.Name -ieq "version.dll" } | Select-Object -First 1
     if (-not $versionDllEntry) {
         $zip.Dispose()
